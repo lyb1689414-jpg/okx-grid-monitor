@@ -39,6 +39,7 @@ class GridConfig(Base):
     extra_margin = Column(Float, nullable=True)        # 额外保证金（手动追加）
     base_arbitrage = Column(Integer, nullable=True)    # 昨日套利基数
     base_profit = Column(Float, nullable=True)         # 昨日网格收益基数
+    ctime = Column(String, nullable=True)              # OKX网格创建时间(ms时间戳)
     take_profit_pct = Column(Float, default=16.14)
     status = Column(String(20), default="active")
     created_at = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

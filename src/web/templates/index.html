@@ -57,7 +57,7 @@ body { background: #f5f6fa; font-size: 14px; }
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-hover mb-0">
-          <thead><tr><th>ID</th><th>交易对</th><th>状态</th><th>杠杆</th><th>总投入</th><th>价格区间</th><th>档位</th><th>当前价</th><th>浮动盈亏</th><th>今日配对</th><th>回报率</th></tr></thead>
+          <thead><tr><th>ID</th><th>交易对</th><th>状态</th><th>运行时长</th><th>杠杆</th><th>总投入</th><th>价格区间</th><th>档位</th><th>当前价</th><th>浮动盈亏</th><th>今日配对</th><th>回报率</th></tr></thead>
           <tbody id="gridTable"></tbody>
         </table>
       </div>
@@ -110,10 +110,11 @@ body { background: #f5f6fa; font-size: 14px; }
       <div class="tab-pane fade" id="tabPairs">
         <div class="d-flex gap-2 mb-2">
           <input type="date" id="pairDateFilter" class="form-control form-control-sm w-auto" onchange="loadPairs()">
+          <select id="pairGridFilter" class="form-select form-select-sm w-auto" onchange="loadPairs()"><option value="">全部网格</option></select>
         </div>
         <div class="table-responsive">
           <table class="table table-hover table-sm">
-            <thead><tr><th>配对时间</th><th>网格ID</th><th>档位</th><th>买价</th><th>卖价</th><th>配对金额</th><th>价差收益</th></tr></thead>
+            <thead><tr><th>配对时间</th><th>网格ID</th><th>档位</th><th>买价</th><th>卖价</th><th>配对金额</th></tr></thead>
             <tbody id="pairsTable"></tbody>
           </table>
         </div>
@@ -202,6 +203,16 @@ function loadGrids() {
       const slText = g.sl_trigger_px > 0 ? '$'+g.sl_trigger_px : '--';
       const rClass = (g.today_return_rate||0) >= 0 ? 'text-success' : 'text-danger';
       const leverText = g.lever ? g.lever + 'x' : '--';
+      // 运行时长
+      let runTime = '--';
+      if (g.ctime) {
+        const created = new Date(parseInt(g.ctime));
+        const now = new Date();
+        const diffMs = now - created;
+        const days = Math.floor(diffMs / 86400000);
+        const hours = Math.floor((diffMs % 86400000) / 3600000);
+        runTime = days > 0 ? days + '天' + hours + '时' : hours + '小时';
+      }
       const liqText = g.liq_px > 0 ? g.liq_px : '--';
       const liqDist = g.liq_px > 0 && g.run_px > 0 ? ((g.run_px - g.liq_px) / g.run_px * 100).toFixed(1)+'%' : '--';
       const liqDistColor = g.liq_px > 0 && g.run_px > 0 && ((g.run_px - g.liq_px) / g.run_px) <= 0.2 ? 'text-danger fw-bold' : '';
@@ -212,6 +223,7 @@ function loadGrids() {
         <td><code>${g.algo_id.substring(0,8)}..</code><br><small class="text-muted">${typeLabel}</small></td>
         <td><b>${g.inst_id}</b></td>
         <td><span class="badge ${badge}">${stext}</span></td>
+        <td>${runTime}</td>
         <td>${leverText}</td>
         <td>$${(g.total_input||g.total_investment).toLocaleString()}<br><small class="text-muted">初始 $${g.total_investment.toLocaleString()}</small></td>
         <td class="text-nowrap">${fmt(g.min_px)} ~ ${fmt(g.max_px)}</td>
@@ -222,7 +234,7 @@ function loadGrids() {
         <td class="${rClass}">${g.today_return_rate}%</td>
       </tr>
       <tr class="grid-detail-row d-none" id="dtl_${g.algo_id}">
-        <td colspan="11">
+        <td colspan="12">
           <div class="row p-3 detail-box m-1" style="font-size:13px">
             <div class="col-md-3"><b>网格设置</b><br>档位数: ${g.grid_count||'--'}<br>套利次数: ${g.arbitrage_num||0}<br>每格最大利润率: ${g.per_max_profit_rate ? (g.per_max_profit_rate*100).toFixed(4)+'%' : '--'}<br>每格最小利润率: ${g.per_min_profit_rate ? (g.per_min_profit_rate*100).toFixed(4)+'%' : '--'}</div>
             <div class="col-md-3"><b>盈亏数据</b><br>网格收益: <span class="${(g.grid_profit||0)>=0?'text-success':'text-danger'}">${fmt(g.grid_profit, true)}</span><br>未配对收益: <span class="${fpClass}">${fmt(fp, true)}</span><br>总盈亏: <span class="${(g.total_pnl||0)>=0?'text-success':'text-danger'}">${fmt(g.total_pnl, true)}</span><br>盈亏比: ${g.pnl_ratio ? (g.pnl_ratio*100).toFixed(4)+'%' : '--'}<br>年化率: ${g.annualized_rate ? (g.annualized_rate*100).toFixed(2)+'%' : '--'}</div>
@@ -236,6 +248,9 @@ function loadGrids() {
     const instIds = [...new Set(grids.map(g => g.inst_id))];
     sel.innerHTML = instIds.map(id => `<option value="${id}">${id}</option>`).join('');
     if (instIds.length) loadChart();
+    // 更新配对明细下拉框
+    const pairSel = document.getElementById('pairGridFilter');
+    pairSel.innerHTML = '<option value="">全部网格</option>' + grids.map(g => `<option value="${g.algo_id}">${g.algo_id.substring(0,10)}... ${g.inst_id}</option>`).join('');
     // 恢复之前展开的行
     expanded.forEach(id => document.getElementById(id)?.classList.remove('d-none'));
   }).catch(console.error);
@@ -300,14 +315,16 @@ function loadTPHistory() {
 function loadPairs(page = 1) {
   pairsPage = page;
   const date = document.getElementById('pairDateFilter').value || new Date().toISOString().slice(0,10);
-  fetchJSON(API + '/pairs?date=' + date + '&page=' + page).then(d => {
+  const aid = document.getElementById('pairGridFilter').value;
+  let url = API + '/pairs?date=' + date + '&page=' + page;
+  if (aid) url += '&algo_id=' + aid;
+  fetchJSON(url).then(d => {
     document.getElementById('pairsTable').innerHTML = d.data.map(r => `<tr>
       <td>${r.pair_time}</td><td><code>${r.algo_id.substring(0,12)}...</code></td>
       <td>${r.group_id}</td><td>${r.buy_price}</td><td>${r.sell_price}</td>
-      <td>$${r.pair_amount.toLocaleString()}</td>
-      <td class="${r.profit >= 0 ? 'text-success' : 'text-danger'}">$${r.profit.toLocaleString()}</td>
-    </tr>`).join('') || '<tr><td colspan="7" class="text-center text-muted">暂无配对记录</td></tr>';
-    renderPager('pairsPager', d.total, pairsPage, loadPairs);
+      <td>$${r.pair_amount.toFixed(6)}</td></tr>
+    `).join('') || '<tr><td colspan="6" class="text-center text-muted">暂无配对记录</td></tr>';
+    renderPager('pairsPager', d.total, pairsPage, loadPairs, 50);
   }).catch(console.error);
 }
 
@@ -470,8 +487,9 @@ function loadMargins() {
   }).catch(console.error);
 }
 
-function renderPager(id, total, page, fn) {
-  const tp = Math.ceil(total / 20);
+function renderPager(id, total, page, fn, pageSize) {
+  const ps = pageSize || 20;
+  const tp = Math.ceil(total / ps);
   const el = document.getElementById(id);
   if (tp <= 1) { el.innerHTML = ''; return; }
   let h = `<li class="page-item ${page<=1?'disabled':''}"><a class="page-link" href="#" onclick="event.preventDefault();${fn.name}(${page-1})">上一页</a></li>`;

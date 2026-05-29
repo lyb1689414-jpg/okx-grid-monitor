@@ -53,15 +53,14 @@ def dashboard_summary():
         total_input = 0.0
 
         for g in grids:
-            from src.db.models import DailyStatistic
-            stat = db.query(DailyStatistic).filter(
-                DailyStatistic.algo_id == g.algo_id,
-                DailyStatistic.stat_date == today,
-            ).first()
-            if stat:
-                total_pairs += (stat.pair_count or 0)
-                total_amount += (stat.pair_amount or 0)
-                total_profit += (stat.pair_profit or 0)
+            from src.db.models import PairRecord
+            today_pairs = db.query(PairRecord).filter(
+                PairRecord.algo_id == g.algo_id,
+                PairRecord.stat_date == today,
+            ).all()
+            total_pairs += len(today_pairs)
+            total_amount += sum(p.pair_amount or 0 for p in today_pairs)
+            total_profit += sum(p.profit or 0 for p in today_pairs)
             total_input += g.total_investment + (g.extra_margin or 0)
 
         # 获取账户可用余额
@@ -107,20 +106,15 @@ def list_grids():
                 DailyStatistic.algo_id == g.algo_id,
                 DailyStatistic.stat_date == today,
             ).first()
-            # 从 pair_records 获取今日配对金额
+            # 从 pair_records 获取今日配对数据（统一来源）
             from src.db.models import PairRecord
-            today_pair_amount = db.query(PairRecord).filter(
+            today_pairs = db.query(PairRecord).filter(
                 PairRecord.algo_id == g.algo_id,
                 PairRecord.stat_date == today,
             ).all()
-            pair_amount = sum(p.pair_amount or 0 for p in today_pair_amount)
-
-            if stat:
-                pair_count = stat.pair_count
-                pair_profit = stat.pair_profit
-            else:
-                pair_count = 0
-                pair_profit = 0
+            pair_count = len(today_pairs)
+            pair_amount = sum(p.pair_amount or 0 for p in today_pairs)
+            pair_profit = sum(p.profit or 0 for p in today_pairs)
             return_rate = round(pair_profit / g.total_investment * 100, 2) if g.total_investment > 0 else 0
 
                 # 累计配对
@@ -160,6 +154,7 @@ def list_grids():
                 "ord_frozen": g.ord_frozen,
                 "avail_eq": g.avail_eq,
                 "extra_margin": g.extra_margin,
+                "ctime": g.ctime,
                 "total_pairs": total_pairs,
                 "today_pairs": pair_count,
                 "today_amount": round(pair_amount, 2),
@@ -198,22 +193,31 @@ def statistics(date: str = Query(None), page: int = Query(1), page_size: int = Q
     try:
         rows = get_daily_stats(db, stat_date=date, page=page, page_size=page_size)
         total = get_daily_stats_count(db, stat_date=date)
+        result = []
+        for r in rows:
+            # 从 pair_records 获取真实配对数据
+            from src.db.models import PairRecord
+            day_pairs = db.query(PairRecord).filter(
+                PairRecord.algo_id == r.algo_id,
+                PairRecord.stat_date == r.stat_date,
+            ).all()
+            real_pairs = len(day_pairs)
+            real_profit = sum(p.pair_amount or 0 for p in day_pairs)
+            total_inv = r.total_investment if r.total_investment > 0 else 1
+            result.append({
+                "algo_id": r.algo_id,
+                "inst_id": r.inst_id,
+                "stat_date": r.stat_date,
+                "pair_count": real_pairs or r.pair_count,
+                "pair_amount": real_profit if real_pairs else r.pair_amount,
+                "pair_profit": real_profit if real_pairs else r.pair_profit,
+                "total_investment": r.total_investment,
+                "daily_return_rate": round(real_profit / total_inv * 100, 4) if real_pairs else r.daily_return_rate,
+                "underlying_change_pct": r.underlying_change_pct,
+                "underlying_amplitude_pct": r.underlying_amplitude_pct,
+            })
         return {
-            "data": [
-                {
-                    "algo_id": r.algo_id,
-                    "inst_id": r.inst_id,
-                    "stat_date": r.stat_date,
-                    "pair_count": r.pair_count,
-                    "pair_amount": r.pair_amount,
-                    "pair_profit": r.pair_profit,
-                    "total_investment": r.total_investment,
-                    "daily_return_rate": r.daily_return_rate,
-                    "underlying_change_pct": r.underlying_change_pct,
-                    "underlying_amplitude_pct": r.underlying_amplitude_pct,
-                }
-                for r in rows
-            ],
+            "data": result,
             "total": total,
             "page": page,
             "page_size": page_size,

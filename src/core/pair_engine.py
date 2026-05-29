@@ -9,7 +9,7 @@
 5. 存入 pair_records，去重用 sub_orders_tracked
 """
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -115,7 +115,7 @@ def scan_and_pair(db: Session, algo_id: str,
             # 配对时间 = 卖单成交时间（收益实现的那一刻）
             sell_time_ms = sell.get("uTime", sell.get("cTime", "0"))
             try:
-                pair_dt = datetime.fromtimestamp(int(sell_time_ms) / 1000)
+                pair_dt = datetime.fromtimestamp(int(sell_time_ms) / 1000, tz=timezone(timedelta(hours=8)))
                 pair_time = pair_dt.strftime("%Y-%m-%d %H:%M:%S")
                 stat_date = pair_dt.strftime("%Y-%m-%d")
             except (ValueError, OSError):
@@ -188,6 +188,7 @@ def sync_grids_from_exchange(db: Session) -> dict:
             px_lower = float(detail_data.get("minPx", 0) or 0)
             px_upper = float(detail_data.get("maxPx", 0) or 0)
             grid_count = int(detail_data.get("gridNum", 0) or 0)
+            ctime = detail_data.get("cTime", "")  # 网格创建时间毫秒戳
             run_px = float(detail_data.get("runPx", 0) or 0)
             float_profit = float(detail_data.get("floatProfit", 0) or 0)
             total_pnl = float(detail_data.get("totalPnl", 0) or 0)
@@ -254,6 +255,7 @@ def sync_grids_from_exchange(db: Session) -> dict:
             extra = eq - investment - total_pnl
             if extra > 0 and (cfg.extra_margin is None or extra > cfg.extra_margin * 0.5):
                 cfg.extra_margin = round(extra, 2)
+            cfg.ctime = ctime
             db.commit()
 
             synced.append({
