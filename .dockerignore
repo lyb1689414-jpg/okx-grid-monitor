@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.idea
+.vscode
+data/
+logs/
+*.db
+.env.example
+README.md
+CLAUDE.md
+devlog/
+docs/
+需求.txt

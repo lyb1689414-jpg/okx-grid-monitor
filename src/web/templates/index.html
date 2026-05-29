@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OKX 合约网格自动监控</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+body { background: #f5f6fa; font-size: 14px; }
+.card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.stat-card { text-align: center; padding: 18px 10px; }
+.stat-card .value { font-size: 26px; font-weight: 700; margin: 4px 0; }
+.stat-card .label { color: #888; font-size: 13px; }
+.value.green { color: #00a854; }
+.value.red { color: #f5222d; }
+.value.blue { color: #1890ff; }
+.table th { background: #fafafa; font-weight: 600; white-space: nowrap; }
+.badge-active { background: #52c41a; }
+.badge-stopped { background: #faad14; }
+.badge-closed { background: #d9d9d9; color: #666; }
+#chart { width: 100%; height: 380px; }
+.nav-tabs .nav-link { font-size: 14px; padding: 8px 16px; }
+.refresh-time { font-size: 12px; color: #999; }
+.grid-detail-row .detail-box { background: #f8f9fa; border-radius: 10px; }
+</style>
+</head>
+<body>
+
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">OKX 合约网格自动监控</h5>
+    <div class="d-flex gap-2 align-items-center">
+      <span class="refresh-time" id="refreshTime">--</span>
+      <span class="refresh-time" id="countdown" style="color:#1890ff">(30s)</span>
+      <button class="btn btn-sm btn-outline-primary" onclick="refreshAll()">刷新</button>
+      <button class="btn btn-sm btn-outline-success" onclick="triggerSync()">同步网格</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="triggerStats()">手动统计</button>
+    </div>
+  </div>
+
+  <div class="row mb-3" id="summaryCards">
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">活跃网格数</div><div class="value blue" id="cardGrids">--</div></div></div>
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">今日配对次数</div><div class="value blue" id="cardPairs">--</div></div></div>
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">今日配对金额(USDT)</div><div class="value blue" id="cardAmount">--</div></div></div>
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">今日收益(USDT)</div><div class="value green" id="cardProfit">--</div></div></div>
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">总投入(USDT)</div><div class="value blue" id="cardInvest">--</div></div></div>
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">今日回报率</div><div class="value green" id="cardRate">--</div></div></div>
+    <div class="col-md-2 col-6 mb-2"><div class="card stat-card"><div class="label">可用余额(USDT)</div><div class="value blue" id="cardAvail">--</div></div></div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span class="fw-bold">网格列表</span>
+      <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.grid-detail-row').forEach(r=>r.classList.toggle('d-none'))">展开/折叠全部</button>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>ID</th><th>交易对</th><th>状态</th><th>杠杆</th><th>总投入</th><th>价格区间</th><th>档位</th><th>当前价</th><th>浮动盈亏</th><th>今日配对</th><th>回报率</th></tr></thead>
+          <tbody id="gridTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span class="fw-bold">振幅走势</span>
+      <select class="form-select form-select-sm w-auto" id="chartInst" onchange="loadChart()">
+        <option value="">加载中...</option>
+      </select>
+    </div>
+    <div class="card-body"><div id="chart"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header p-0">
+      <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabStats" type="button">历史统计</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTP" type="button">止盈记录</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPairs" type="button">配对明细</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDaily" type="button">日报</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabWeekly" type="button">周报</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMargin" type="button">保证金记录</button></li>
+      </ul>
+    </div>
+    <div class="card-body tab-content">
+      <div class="tab-pane fade show active" id="tabStats">
+        <div class="d-flex gap-2 mb-2 align-items-center">
+          <input type="date" id="statDateFilter" class="form-control form-control-sm w-auto" onchange="loadStats()">
+          <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('statDateFilter').value='';loadStats();">清除</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover table-sm">
+            <thead><tr><th>日期</th><th>网格ID</th><th>交易对</th><th>配对次数</th><th>配对金额</th><th>收益</th><th>回报率</th><th>涨跌幅</th><th>振幅</th></tr></thead>
+            <tbody id="statsTable"></tbody>
+          </table>
+        </div>
+        <nav><ul class="pagination pagination-sm" id="statsPager"></ul></nav>
+      </div>
+      <div class="tab-pane fade" id="tabTP">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm">
+            <thead><tr><th>时间</th><th>网格ID</th><th>交易对</th><th>旧止盈</th><th>新止盈</th><th>当时收益</th><th>投入本金</th></tr></thead>
+            <tbody id="tpTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="tabPairs">
+        <div class="d-flex gap-2 mb-2">
+          <input type="date" id="pairDateFilter" class="form-control form-control-sm w-auto" onchange="loadPairs()">
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover table-sm">
+            <thead><tr><th>配对时间</th><th>网格ID</th><th>档位</th><th>买价</th><th>卖价</th><th>配对金额</th><th>价差收益</th></tr></thead>
+            <tbody id="pairsTable"></tbody>
+          </table>
+        </div>
+        <nav><ul class="pagination pagination-sm" id="pairsPager"></ul></nav>
+      </div>
+      <!-- 日报 -->
+      <div class="tab-pane fade" id="tabDaily">
+        <div class="d-flex gap-2 mb-2 align-items-center">
+          <input type="date" id="dailyDate" class="form-control form-control-sm w-auto" onchange="loadDaily()">
+          <span class="text-muted" style="font-size:12px">默认显示昨天日报</span>
+        </div>
+        <div id="dailyContent"></div>
+      </div>
+      <!-- 周报 -->
+      <div class="tab-pane fade" id="tabWeekly">
+        <div class="d-flex gap-2 mb-2 align-items-center">
+          <input type="date" id="weeklyEndDate" class="form-control form-control-sm w-auto" onchange="loadWeekly()">
+          <span class="text-muted" style="font-size:12px">选择周日日期</span>
+        </div>
+        <div id="weeklyContent"></div>
+      </div>
+      <!-- 保证金记录 -->
+      <div class="tab-pane fade" id="tabMargin">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm">
+            <thead><tr><th>时间</th><th>网格ID</th><th>交易对</th><th>当时强平价</th><th>当时标记价</th><th>追加金额</th><th>追加前可用</th></tr></thead>
+            <tbody id="marginTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const API = '/api';
+let statsPage = 1, pairsPage = 1;
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+function loadSummary() {
+  fetchJSON(API + '/dashboard/summary').then(d => {
+    document.getElementById('cardGrids').textContent = d.active_grids;
+    document.getElementById('cardPairs').textContent = d.today_pairs;
+    document.getElementById('cardAmount').textContent = '$' + d.today_amount.toLocaleString();
+    document.getElementById('cardProfit').textContent = '$' + d.today_profit.toLocaleString();
+    document.getElementById('cardInvest').textContent = '$' + d.total_input.toLocaleString();
+    document.getElementById('cardRate').textContent = d.today_return_rate + '%';
+    document.getElementById('cardAvail').textContent = '$' + (d.avail_balance || 0).toLocaleString();
+    document.getElementById('refreshTime').textContent = '更新: ' + d.update_time;
+    document.getElementById('cardProfit').className = 'value ' + (d.today_profit >= 0 ? 'green' : 'red');
+    document.getElementById('cardRate').className = 'value ' + (d.today_return_rate >= 0 ? 'green' : 'red');
+  }).catch(console.error);
+}
+
+function fmt(v, isMoney) {
+  if (v == null || v === '') return '--';
+  if (typeof v === 'number') {
+    if (isMoney) return (v>=0?'+':'') + v.toFixed(4);
+    return v < 0.01 ? v.toFixed(6) : v.toFixed(4);
+  }
+  return v;
+}
+
+function toggleDetail(id) { document.getElementById(id).classList.toggle('d-none'); }
+
+function loadGrids() {
+  // 记录当前展开的行
+  const expanded = new Set();
+  document.querySelectorAll('.grid-detail-row:not(.d-none)').forEach(r => expanded.add(r.id));
+
+  fetchJSON(API + '/grids').then(grids => {
+    const tbody = document.getElementById('gridTable');
+    tbody.innerHTML = grids.map(g => {
+      const badge = g.status === 'active' ? 'badge-active' : g.status === 'stopped' ? 'badge-stopped' : 'badge-closed';
+      const stext = g.status === 'active' ? '运行中' : g.status === 'stopped' ? '已停止' : '已关闭';
+      const typeLabel = g.algo_ord_type === 'contract_grid' ? '合约' : '现货';
+      const fp = g.float_profit || 0;
+      const fpClass = fp >= 0 ? 'text-success' : 'text-danger';
+      const tpText = g.tp_trigger_px > 0 ? '$'+g.tp_trigger_px : (g.tp_ratio && parseFloat(g.tp_ratio) > 0 ? (parseFloat(g.tp_ratio)*100).toFixed(0)+'%' : '--');
+      const slText = g.sl_trigger_px > 0 ? '$'+g.sl_trigger_px : '--';
+      const rClass = (g.today_return_rate||0) >= 0 ? 'text-success' : 'text-danger';
+      const leverText = g.lever ? g.lever + 'x' : '--';
+      const liqText = g.liq_px > 0 ? g.liq_px : '--';
+      const liqDist = g.liq_px > 0 && g.run_px > 0 ? ((g.run_px - g.liq_px) / g.run_px * 100).toFixed(1)+'%' : '--';
+      const liqDistColor = g.liq_px > 0 && g.run_px > 0 && ((g.run_px - g.liq_px) / g.run_px) <= 0.2 ? 'text-danger fw-bold' : '';
+      const frozenText = g.ord_frozen > 0 ? '$' + g.ord_frozen.toFixed(4) : '--';
+      const extraText = g.extra_margin ? '$' + g.extra_margin.toFixed(2) : `<a href='#' onclick='event.stopPropagation();setExtraMargin("${g.algo_id}")' class='text-decoration-none'>设置</a>`;
+      const availText = g.avail_eq > 0 ? '$' + g.avail_eq.toFixed(2) : '--';
+      return `<tr style="cursor:pointer" onclick="toggleDetail('dtl_${g.algo_id}')">
+        <td><code>${g.algo_id.substring(0,8)}..</code><br><small class="text-muted">${typeLabel}</small></td>
+        <td><b>${g.inst_id}</b></td>
+        <td><span class="badge ${badge}">${stext}</span></td>
+        <td>${leverText}</td>
+        <td>$${(g.total_input||g.total_investment).toLocaleString()}<br><small class="text-muted">初始 $${g.total_investment.toLocaleString()}</small></td>
+        <td class="text-nowrap">${fmt(g.min_px)} ~ ${fmt(g.max_px)}</td>
+        <td>${g.grid_count||'--'}</td>
+        <td>${fmt(g.run_px)}</td>
+        <td class="${fpClass}">${fmt(fp, true)}</td>
+        <td>${g.today_pairs}</td>
+        <td class="${rClass}">${g.today_return_rate}%</td>
+      </tr>
+      <tr class="grid-detail-row d-none" id="dtl_${g.algo_id}">
+        <td colspan="11">
+          <div class="row p-3 detail-box m-1" style="font-size:13px">
+            <div class="col-md-3"><b>网格设置</b><br>档位数: ${g.grid_count||'--'}<br>套利次数: ${g.arbitrage_num||0}<br>每格最大利润率: ${g.per_max_profit_rate ? (g.per_max_profit_rate*100).toFixed(4)+'%' : '--'}<br>每格最小利润率: ${g.per_min_profit_rate ? (g.per_min_profit_rate*100).toFixed(4)+'%' : '--'}</div>
+            <div class="col-md-3"><b>盈亏数据</b><br>网格收益: <span class="${(g.grid_profit||0)>=0?'text-success':'text-danger'}">${fmt(g.grid_profit, true)}</span><br>未配对收益: <span class="${fpClass}">${fmt(fp, true)}</span><br>总盈亏: <span class="${(g.total_pnl||0)>=0?'text-success':'text-danger'}">${fmt(g.total_pnl, true)}</span><br>盈亏比: ${g.pnl_ratio ? (g.pnl_ratio*100).toFixed(4)+'%' : '--'}<br>年化率: ${g.annualized_rate ? (g.annualized_rate*100).toFixed(2)+'%' : '--'}</div>
+            <div class="col-md-3"><b>风控数据</b><br>杠杆: ${leverText} (实际 ${g.actual_lever ? g.actual_lever.toFixed(2)+'x' : '--'})<br>预估强平价: ${liqText}<br>强平距离: <span class="${liqDistColor}">${liqDist}</span><br>额外保证金: ${extraText}<br>账户权益: ${g.eq ? '$'+g.eq.toFixed(2) : '--'}<br>可用保证金: ${availText}<br>委托冻结: ${frozenText}<br>止盈/止损: ${tpText} / ${slText}</div>
+            <div class="col-md-3"><b>今日统计</b><br>配对次数: ${g.today_pairs}<br>配对金额: $${g.today_amount.toLocaleString()}<br>今日收益: <span class="${(g.today_profit||0)>=0?'text-success':'text-danger'}">$${g.today_profit.toLocaleString()}</span><br>回报率: <span class="${rClass}">${g.today_return_rate}%</span></div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+    const sel = document.getElementById('chartInst');
+    const instIds = [...new Set(grids.map(g => g.inst_id))];
+    sel.innerHTML = instIds.map(id => `<option value="${id}">${id}</option>`).join('');
+    if (instIds.length) loadChart();
+    // 恢复之前展开的行
+    expanded.forEach(id => document.getElementById(id)?.classList.remove('d-none'));
+  }).catch(console.error);
+}
+
+let chartInstance = null;
+function loadChart() {
+  const instId = document.getElementById('chartInst').value;
+  if (!instId) return;
+  fetchJSON(API + '/amplitude-chart?inst_id=' + instId).then(data => {
+    const dates = data.map(d => d.date);
+    const amps = data.map(d => d.amplitude);
+    const changes = data.map(d => d.change);
+    const rates = data.map(d => d.return_rate);
+    if (!chartInstance) chartInstance = echarts.init(document.getElementById('chart'));
+    chartInstance.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['振幅%','涨跌幅%','回报率%'], top: 0 },
+      grid: { left: 50, right: 20, top: 30, bottom: 30 },
+      xAxis: { type: 'category', data: dates, axisLabel: { rotate: 30 } },
+      yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+      series: [
+        { name: '振幅%', type: 'line', data: amps, smooth: true, lineStyle: {width:2}, symbol: 'circle', symbolSize: 4 },
+        { name: '涨跌幅%', type: 'line', data: changes, smooth: true, symbol: 'circle', symbolSize: 4 },
+        { name: '回报率%', type: 'line', data: rates, smooth: true, symbol: 'circle', symbolSize: 4 },
+      ],
+    });
+  }).catch(console.error);
+}
+window.addEventListener('resize', () => { if (chartInstance) chartInstance.resize(); });
+
+function loadStats(page = 1) {
+  statsPage = page;
+  const date = document.getElementById('statDateFilter').value;
+  let url = API + '/statistics?page=' + page;
+  if (date) url += '&date=' + date;
+  fetchJSON(url).then(d => {
+    document.getElementById('statsTable').innerHTML = d.data.map(r => `<tr>
+      <td>${r.stat_date}</td><td><code>${r.algo_id.substring(0,12)}...</code></td>
+      <td>${r.inst_id}</td><td>${r.pair_count}</td><td>$${r.pair_amount.toLocaleString()}</td>
+      <td class="${r.pair_profit >= 0 ? 'text-success' : 'text-danger'}">$${r.pair_profit.toLocaleString()}</td>
+      <td class="${r.daily_return_rate >= 0 ? 'text-success' : 'text-danger'}">${r.daily_return_rate}%</td>
+      <td class="${(r.underlying_change_pct||0) >= 0 ? 'text-success' : 'text-danger'}">${r.underlying_change_pct != null ? r.underlying_change_pct + '%' : '-'}</td>
+      <td>${r.underlying_amplitude_pct != null ? r.underlying_amplitude_pct + '%' : '-'}</td>
+    </tr>`).join('');
+    renderPager('statsPager', d.total, statsPage, loadStats);
+  }).catch(console.error);
+}
+
+function loadTPHistory() {
+  fetchJSON(API + '/take-profit-history').then(rows => {
+    document.getElementById('tpTable').innerHTML = rows.map(r => `<tr>
+      <td>${r.modified_at}</td><td><code>${r.algo_id.substring(0,12)}...</code></td>
+      <td>${r.inst_id}</td><td>${r.old_tp_amount != null ? '$'+r.old_tp_amount.toLocaleString() : '-'}</td>
+      <td>$${r.new_tp_amount.toLocaleString()}</td>
+      <td class="${r.current_profit >= 0 ? 'text-success' : 'text-danger'}">$${r.current_profit.toLocaleString()}</td>
+      <td>$${r.total_investment.toLocaleString()}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="text-center text-muted">暂无记录</td></tr>';
+  }).catch(console.error);
+}
+
+function loadPairs(page = 1) {
+  pairsPage = page;
+  const date = document.getElementById('pairDateFilter').value || new Date().toISOString().slice(0,10);
+  fetchJSON(API + '/pairs?date=' + date + '&page=' + page).then(d => {
+    document.getElementById('pairsTable').innerHTML = d.data.map(r => `<tr>
+      <td>${r.pair_time}</td><td><code>${r.algo_id.substring(0,12)}...</code></td>
+      <td>${r.group_id}</td><td>${r.buy_price}</td><td>${r.sell_price}</td>
+      <td>$${r.pair_amount.toLocaleString()}</td>
+      <td class="${r.profit >= 0 ? 'text-success' : 'text-danger'}">$${r.profit.toLocaleString()}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="text-center text-muted">暂无配对记录</td></tr>';
+    renderPager('pairsPager', d.total, pairsPage, loadPairs);
+  }).catch(console.error);
+}
+
+// 日报
+(function() {
+  // 默认显示昨天
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  document.getElementById('dailyDate').value = d.toISOString().split('T')[0];
+})();
+function loadDaily() {
+  const date = document.getElementById('dailyDate').value;
+  fetchJSON(API + '/report/daily?date=' + date).then(d => {
+    const s = d.summary;
+    const profitCls = (s.total_profit||0) >= 0 ? 'text-success' : 'text-danger';
+    const arrow = v => v > 0 ? '<span class="text-success">&#9650;' + v + '</span>' : (v < 0 ? '<span class="text-danger">&#9660;' + Math.abs(v) + '</span>' : '<span class="text-muted">-</span>');
+    let html = '<div class="row mb-3">';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">日期</div><div class="value purple">' + d.date + '</div></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总盈亏(USDT)</div><div class="value ' + profitCls + '">$' + fmtNum(s.total_profit) + '</div><small>' + arrow(s.total_profit_change) + '</small></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总配对数</div><div class="value blue">' + s.total_pairs + '</div><small>' + arrow(s.total_pairs_change) + '</small></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总回报率</div><div class="value ' + profitCls + '">' + s.return_rate + '%</div><small>' + arrow(s.return_rate_change) + '</small></div></div>';
+    html += '</div>';
+
+    // 网格明细
+    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead><tr><th>网格ID</th><th>交易对</th><th>总投入</th><th>配对数</th><th>收益</th><th>回报率</th><th>涨跌幅</th><th>振幅</th><th>强平距离</th></tr></thead><tbody>';
+    d.grid_details.forEach(g => {
+      const b = g.status === 'active' ? 'badge-active' : 'badge-stopped';
+      const pf = (g.profit||0) >= 0 ? 'text-success' : 'text-danger';
+      const lqCls = g.liq_distance && g.liq_distance <= 20 ? 'text-danger fw-bold' : '';
+      // 环比箭头
+      const pairDiff = g.pair_count_prev != null ? g.pair_count - g.pair_count_prev : null;
+      const profitDiff = g.profit_prev != null ? round2(g.profit - g.profit_prev) : null;
+      const pairArrow = pairDiff > 0 ? ' <span class=\"text-success\">&#9650;' + pairDiff + '</span>' : (pairDiff < 0 ? ' <span class=\"text-danger\">&#9660;' + Math.abs(pairDiff) + '</span>' : '');
+      const profitArrow = profitDiff > 0 ? ' <span class=\"text-success\">&#9650;' + profitDiff + '</span>' : (profitDiff < 0 ? ' <span class=\"text-danger\">&#9660;' + Math.abs(profitDiff) + '</span>' : '');
+
+      html += '<tr><td><code>' + g.algo_id.substring(0,10) + '...</code></td>';
+      html += '<td><b>' + g.inst_id + '</b></td>';
+      html += '<td>$' + fmtNum(g.total_input) + '<br><small class=\"text-muted\">初始 $' + fmtNum(g.initial_investment) + '</small></td>';
+      html += '<td>' + g.pair_count + pairArrow + '</td>';
+      html += '<td class="' + pf + '">$' + fmtNum(g.profit) + profitArrow + '</td>';
+      html += '<td class="' + pf + '">' + (g.return_rate||0) + '%</td>';
+      html += '<td>' + (g.change_pct != null ? g.change_pct + '%' : '-') + '</td><td>' + (g.amplitude != null ? g.amplitude + '%' : '-') + '</td>';
+      html += '<td class="' + lqCls + '">' + (g.liq_distance != null ? g.liq_distance + '%' : '--') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // 7日振幅图
+    html += '<div class="dark-card mb-3"><div class="card-header">7日振幅走势</div><div class="card-body"><div id="dailyChart" style="width:100%;height:280px"></div></div></div>';
+
+    // 风控
+    if (d.risk_summary.margin_add_count > 0) {
+      html += '<div class="alert alert-warning mt-2">保证金追加: ' + d.risk_summary.margin_add_count + '次, 共$' + fmtNum(d.risk_summary.margin_add_total) + '</div>';
+    }
+    if (d.risk_summary.grids_at_risk.length > 0) {
+      html += '<div class="alert alert-danger mt-2">强平风险: ';
+      d.risk_summary.grids_at_risk.forEach(r => { html += r.inst_id + ' (' + r.liq_distance + '%) '; });
+      html += '</div>';
+    }
+
+    document.getElementById('dailyContent').innerHTML = html;
+
+    // 7日振幅图
+    setTimeout(() => {
+      const el = document.getElementById('dailyChart');
+      if (!el) return;
+      const chart = echarts.init(el);
+      const dates = d.amplitude_chart.map(x => x.date);
+      chart.setOption({
+        tooltip: {trigger:'axis'}, legend: {data:['振幅%','涨跌幅%'], top:0},
+        grid: {left:50,right:20,top:30,bottom:30},
+        xAxis: {type:'category',data:dates,axisLabel:{rotate:30}},
+        yAxis: {type:'value',axisLabel:{formatter:'{value}%'}},
+        series: [
+          {name:'振幅%',type:'line',data:d.amplitude_chart.map(x=>x.amplitude),smooth:true,lineStyle:{width:2},symbol:'circle',symbolSize:4},
+          {name:'涨跌幅%',type:'line',data:d.amplitude_chart.map(x=>x.change_pct),smooth:true,symbol:'circle',symbolSize:4},
+        ]
+      });
+      window.addEventListener('resize', () => chart.resize());
+    }, 200);
+  }).catch(console.error);
+}
+
+// 周报
+function loadWeekly() {
+  const endDate = document.getElementById('weeklyEndDate').value || '';
+  fetchJSON(API + '/report/weekly' + (endDate ? '?end_date=' + endDate : '')).then(d => {
+    const s = d.summary;
+    const profitCls = (s.total_profit||0) >= 0 ? 'text-success' : 'text-danger';
+    const arrow2 = v => v > 0 ? '<span class="text-success">&#9650;' + Math.abs(v) + '</span>' : (v < 0 ? '<span class="text-danger">&#9660;' + Math.abs(v) + '</span>' : '<span class="text-muted">-</span>');
+    let html = '<div class="row mb-3">';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">周期</div><div class="value purple" style="font-size:14px">' + d.week_start + ' ~ ' + d.week_end + '</div></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">本周盈亏</div><div class="value ' + profitCls + '">$' + fmtNum(s.total_profit) + '</div><small>' + arrow2(s.profit_change) + '</small></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总配对数</div><div class="value blue">' + s.total_pairs + '</div><small>' + arrow2(s.pairs_change) + '</small></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">配对金额</div><div class="value blue">$' + fmtNum(s.total_amount) + '</div></div></div>';
+    html += '</div>';
+
+    // 每日趋势
+    html += '<div class="dark-card mb-3"><div class="card-header">每日趋势</div><div class="card-body"><div id="weeklyTrendChart" style="width:100%;height:280px"></div></div></div>';
+
+    // 网格汇总
+    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead><tr><th>网格ID</th><th>交易对</th><th>总投入</th><th>本周配对</th><th>本周收益</th><th>日均回报率</th><th>最佳日</th><th>最佳收益</th></tr></thead><tbody>';
+    d.grid_week_summary.forEach(g => {
+      const pf = (g.total_profit||0) >= 0 ? 'text-success' : 'text-danger';
+      html += '<tr><td><code>' + g.algo_id.substring(0,10) + '...</code></td>';
+      html += '<td><b>' + g.inst_id + '</b></td>';
+      html += '<td>$' + fmtNum(g.total_input) + '<br><small class=\"text-muted\">初始 $' + fmtNum(g.initial_investment) + '</small></td>';
+      html += '<td>' + g.total_pairs + '</td>';
+      html += '<td class="' + pf + '">$' + fmtNum(g.total_profit) + '</td><td>' + (g.avg_return_rate||0) + '%</td>';
+      html += '<td>' + (g.best_day||'--') + '</td><td class="text-success">$' + fmtNum(g.best_profit) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // 风控
+    if (d.margin_events.count > 0) {
+      html += '<div class="alert alert-warning mt-2">本周保证金追加: ' + d.margin_events.count + '次, 共$' + fmtNum(d.margin_events.total_amount) + '</div>';
+    }
+
+    document.getElementById('weeklyContent').innerHTML = html;
+
+    // 周趋势图
+    setTimeout(() => {
+      const el2 = document.getElementById('weeklyTrendChart');
+      if (!el2) return;
+      const chart2 = echarts.init(el2);
+      const dates2 = d.daily_summary.map(x => x.date.substring(5) + ' ' + x.weekday);
+      chart2.setOption({
+        tooltip: {trigger:'axis'}, legend: {data:['配对次数','收益(USDT)'], top:0},
+        grid: {left:50,right:20,top:30,bottom:30},
+        xAxis: {type:'category',data:dates2,axisLabel:{rotate:20}},
+        yAxis: [
+          {type:'value',name:'配对次数'},
+          {type:'value',name:'收益(USDT)'}
+        ],
+        series: [
+          {name:'配对次数',type:'bar',data:d.daily_summary.map(x=>x.pair_count),itemStyle:{color:'#1890ff'}},
+          {name:'收益(USDT)',type:'line',yAxisIndex:1,data:d.daily_summary.map(x=>x.profit),smooth:true,lineStyle:{width:2,color:'#52c41a'},symbol:'circle',symbolSize:4},
+        ]
+      });
+      window.addEventListener('resize', () => chart2.resize());
+    }, 200);
+  }).catch(console.error);
+}
+
+function fmtNum(v) {
+  if (v == null) return '--';
+  return Number(v).toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function round2(v) {
+  if (v == null) return null;
+  return Math.round(v * 100) / 100;
+}
+
+function loadMargins() {
+  fetchJSON(API + '/margin-additions').then(d => {
+    document.getElementById('marginTable').innerHTML = d.data.map(r => `<tr>
+      <td>${r.created_at}</td><td><code>${r.algo_id.substring(0,12)}...</code></td>
+      <td>${r.inst_id}</td><td>${r.old_liq_px}</td><td>${r.mark_px}</td>
+      <td class="text-warning fw-bold">$${r.added_amount}</td><td>$${r.available_before}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="text-center text-muted">暂无保证金追加记录</td></tr>';
+  }).catch(console.error);
+}
+
+function renderPager(id, total, page, fn) {
+  const tp = Math.ceil(total / 20);
+  const el = document.getElementById(id);
+  if (tp <= 1) { el.innerHTML = ''; return; }
+  let h = `<li class="page-item ${page<=1?'disabled':''}"><a class="page-link" href="#" onclick="event.preventDefault();${fn.name}(${page-1})">上一页</a></li>`;
+  for (let i = 1; i <= tp; i++) {
+    h += `<li class="page-item ${i===page?'active':''}"><a class="page-link" href="#" onclick="event.preventDefault();${fn.name}(${i})">${i}</a></li>`;
+  }
+  h += `<li class="page-item ${page>=tp?'disabled':''}"><a class="page-link" href="#" onclick="event.preventDefault();${fn.name}(${page+1})">下一页</a></li>`;
+  el.innerHTML = h;
+}
+
+async function triggerSync() {
+  try {
+    const r = await fetch(API + '/admin/sync-grids', { method: 'POST' });
+    const d = await r.json();
+    alert('同步完成: ' + d.synced + ' 个网格' + (d.errors.length ? '\n错误: ' + d.errors.join(', ') : ''));
+    refreshAll();
+  } catch(e) { alert('同步失败: ' + e); }
+}
+
+async function setExtraMargin(algoId) {
+  const v = prompt('请输入额外保证金(USDT):', '');
+  if (!v) return;
+  const amt = parseFloat(v);
+  if (isNaN(amt)) return alert('请输入有效数字');
+  try {
+    const r = await fetch(API + '/admin/set-extra-margin', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({algo_id: algoId, amount: amt}) });
+    const d = await r.json();
+    if (d.success) { refreshAll(); } else { alert('失败: ' + d.error); }
+  } catch(e) { alert('失败: ' + e); }
+}
+
+async function triggerStats() {
+  if (!confirm('确定要手动触发每日统计？')) return;
+  try {
+    const r = await fetch(API + '/admin/trigger-stats', { method: 'POST' });
+    const d = await r.json();
+    alert('统计完成: ' + d.grids_processed + ' 个网格');
+    refreshAll();
+  } catch(e) { alert('失败: ' + e); }
+}
+
+function refreshAll() { loadSummary(); loadGrids(); loadStats(statsPage); loadTPHistory(); loadPairs(pairsPage); }
+
+document.querySelectorAll('[data-bs-toggle="tab"]').forEach(btn => {
+  btn.addEventListener('shown.bs.tab', e => {
+    const t = e.target.getAttribute('data-bs-target');
+    if (t === '#tabStats') loadStats();
+    if (t === '#tabTP') loadTPHistory();
+    if (t === '#tabPairs') loadPairs();
+    if (t === '#tabDaily') loadDaily();
+    if (t === '#tabWeekly') loadWeekly();
+    if (t === '#tabMargin') loadMargins();
+  });
+});
+
+refreshAll();
+let countdownSec = 30;
+setInterval(() => {
+  countdownSec--;
+  document.getElementById('countdown').textContent = '(' + countdownSec + 's)';
+  if (countdownSec <= 0) countdownSec = 30;
+}, 1000);
+setInterval(() => { loadSummary(); loadGrids(); countdownSec = 30; }, 30000);
+</script>
+</body>
+</html>

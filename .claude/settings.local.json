@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cd \"i:/虚拟货币/合约网格自动监控\" && mkdir -p config src/api src/core src/db src/scheduler src/web/templates data logs)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from src.db.database import init_db; init_db\\(\\); print\\('数据库初始化成功'\\)\")",
+      "Bash(pip --version)",
+      "Bash(/e/anaconda3/python -m pip install fastapi uvicorn sqlalchemy httpx apscheduler pydantic-settings pyyaml jinja2)",
+      "Bash(/e/anaconda3/python -c \"from src.db.database import init_db; init_db\\(\\); print\\('数据库初始化成功'\\)\")",
+      "Bash(/e/anaconda3/python -c \"from src.web.app import app; print\\('应用加载成功'\\)\")",
+      "Bash(/e/anaconda3/python run.py)",
+      "Bash(curl -s http://localhost:8000)",
+      "Bash(curl -s http://localhost:8000/api/dashboard/summary)",
+      "Bash(curl -s http://localhost:8000/api/grids)",
+      "Bash(taskkill //F //FI \"MEMUSAGE gt 0\" //FI \"IMAGENAME eq python.exe\")",
+      "Bash(/e/anaconda3/python -c ' *)",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no -o ConnectTimeout=10 ec2-user@13.251.84.181 \"echo 连接成功 && uname -a && cat /etc/os-release | head -3\")",
+      "Bash(icacls \"I:\\\\aws-api\\\\lyb-BN.pem\" /reset /c)",
+      "Bash(icacls \"I:\\\\aws-api\\\\lyb-BN.pem\" /inheritance:r /grant:r \"%USERNAME%:R\" /c)",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@13.251.84.181 \"echo 成功\")",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no -o ConnectTimeout=10 admin@13.251.84.181 \"echo 成功\")",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no ubuntu@13.251.84.181 \"echo '=== 系统版本 ===' && lsb_release -a 2>/dev/null | head -2 && echo && echo '=== Docker ===' && \\(docker --version 2>&1 || echo '未安装'\\) && echo && echo '=== docker-compose ===' && \\(docker-compose --version 2>&1 || docker compose version 2>&1 || echo '未安装'\\) && echo && echo '=== Python ===' && \\(python3 --version 2>&1 || echo '未安装'\\) && echo && echo '=== 磁盘 ===' && df -h / | tail -1\")",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no ubuntu@13.251.84.181 \"sudo apt-get update -qq && sudo apt-get install -y -qq docker.io docker-compose-v2 2>&1 && sudo systemctl start docker && sudo usermod -aG docker ubuntu && echo '=== 安装完成 ===' && docker --version\")",
+      "Bash(tar -czf /tmp/okx-monitor.tar.gz --exclude=data --exclude=logs --exclude=__pycache__ --exclude=*.pyc --exclude=.git --exclude=devlog --exclude=需求.txt Dockerfile docker-compose.yml .dockerignore .env .env.example .gitignore requirements.txt run.py config/ src/)",
+      "Bash(scp -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no /tmp/okx-monitor.tar.gz ubuntu@13.251.84.181:~/okx-monitor.tar.gz)",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no ubuntu@13.251.84.181 \"mkdir -p ~/okx-monitor && cd ~/okx-monitor && tar -xzf ~/okx-monitor.tar.gz && rm ~/okx-monitor.tar.gz && ls -la && echo && echo '=== 目录结构 ===' && find . -type f | head -25\")",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no ubuntu@13.251.84.181 \"cd ~/okx-monitor && sudo docker compose up -d --build 2>&1\")",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no ubuntu@13.251.84.181 \"sudo docker compose -f ~/okx-monitor/docker-compose.yml logs --tail 20 2>&1\")",
+      "Bash(ssh -i \"I:/aws-api/lyb-BN.pem\" -o StrictHostKeyChecking=no ubuntu@13.251.84.181 \"curl -s http://localhost:8000/api/dashboard/summary 2>&1\")",
+      "Bash(curl -s --connect-timeout 5 http://13.251.84.181:8000/api/dashboard/summary)",
+      "Bash(claude plugins *)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(uipro init *)",
+      "Bash(python skills/ui-ux-pro-max/scripts/search.py \"crypto trading dashboard fintech dark mode data monitoring\" --design-system -p \"OKX Grid Monitor\" -f markdown)",
+      "Bash(python \".claude/skills/ui-ux-pro-max/scripts/search.py\" \"crypto trading dashboard fintech dark mode\" --design-system -p \"OKX Grid Monitor\" -f markdown)",
+      "Bash(python \".claude/skills/ui-ux-pro-max/scripts/search.py\" \"real-time dashboard monitoring grid profit\" --domain chart)",
+      "Bash(python \".claude/skills/ui-ux-pro-max/scripts/search.py\" \"animation loading dark mode accessibility\" --domain ux)",
+      "Bash(python \".claude/skills/ui-ux-pro-max/scripts/search.py\" \"crypto trading dashboard fintech dark mode\" --design-system --persist -p \"OKX Grid Monitor\" -f markdown)",
+      "Bash(npx skills *)",
+      "Bash(rm -f \"i:/虚拟货币/合约网格自动监控/data/okx_grid.db\")",
+      "Bash(tar -czf /tmp/okx-monitor.tar.gz --exclude='data' --exclude='logs' --exclude='__pycache__' --exclude='*.pyc' --exclude='.git' --exclude='devlog' --exclude='需求.txt' --exclude='design-system' Dockerfile docker-compose.yml .dockerignore .env .env.example .gitignore requirements.txt run.py config/ src/)"
+    ],
+    "additionalDirectories": [
+      "i:\\虚拟货币\\合约网格自动监控"
+    ]
+  }
+}

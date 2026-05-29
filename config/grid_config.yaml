@@ -1,0 +1,28 @@
+# 止盈比例（应用于所有网格）
+take_profit_pct: 16.14
+
+# 合约网格列表
+# algo_id 可以先留空，程序运行后会自动从欧易获取并关联
+grids:
+  - inst_id: "BTC-USDT-SWAP"
+    total_investment: 3000.0
+
+  - inst_id: "ETH-USDT-SWAP"
+    total_investment: 2000.0
+
+  - inst_id: "SOL-USDT-SWAP"
+    total_investment: 1000.0
+
+  - inst_id: "DOGE-USDT-SWAP"
+    total_investment: 500.0
+
+  - inst_id: "SUI-USDT-SWAP"
+    total_investment: 1500.0
+
+# 行情监控列表
+watchlist:
+  - "BTC-USDT-SWAP"
+  - "ETH-USDT-SWAP"
+  - "SOL-USDT-SWAP"
+  - "DOGE-USDT-SWAP"
+  - "SUI-USDT-SWAP"
