@@ -21,11 +21,12 @@ def send_weekly_report(report: dict) -> bool:
     if not WEBHOOK_URL:
         return False
 
+    from src.utils import sha_now
     ws = report.get("week_start", "")
     we = report.get("week_end", "")
     s = report.get("summary", {})
 
-    lines = [f"📊 周报 {ws} ~ {we}", ""]
+    lines = [f"📊 周报 {ws} ~ {we}", f"发送时间: {sha_now().strftime('%Y-%m-%d %H:%M:%S')}", ""]
     lines.append(f"总配对: {s.get('total_pairs', 0)} 次")
     lines.append(f"总收益: ${_fmt(s.get('total_profit', 0))}")
     lines.append(f"总配对金额: ${_fmt(s.get('total_amount', 0))}")
@@ -46,16 +47,15 @@ def send_weekly_report(report: dict) -> bool:
     if margin.get("count", 0) > 0:
         lines.append(f"\n保证金追加: {margin['count']}次, ${_fmt(margin.get('total_amount', 0))}")
 
+    body = {"msg_type": "text", "content": {"text": "\n".join(lines)}}
     try:
-        resp = httpx.post(WEBHOOK_URL, json={
-            "msg_type": "text",
-            "content": {"text": "\n".join(lines)},
-        }, timeout=10)
+        resp = httpx.post(WEBHOOK_URL, json=body, timeout=10)
+        logger.info(f"飞书响应: status={resp.status_code}, body={resp.text[:200]}")
         if resp.status_code == 200:
             logger.info(f"周报推送飞书成功: {ws}~{we}")
             return True
         else:
-            logger.error(f"周报推送失败: {resp.text}")
+            logger.error(f"周报推送失败: status={resp.status_code}, body={resp.text}")
     except Exception as e:
         logger.error(f"周报推送异常: {e}")
     return False
@@ -66,10 +66,11 @@ def send_daily_report(report: dict) -> bool:
     if not WEBHOOK_URL:
         return False
 
+    from src.utils import sha_now
     s = report.get("summary", {})
     date = report.get("date", "")
 
-    lines = [f"📊 日报 {date}", ""]
+    lines = [f"📊 日报 {date}", f"发送时间: {sha_now().strftime('%Y-%m-%d %H:%M:%S')}", ""]
     lines.append(f"总配对收益: ${_fmt(s.get('total_profit'))}")
     lines.append(f"总配对次数: {s.get('total_pairs', 0)} 次")
 
@@ -89,16 +90,15 @@ def send_daily_report(report: dict) -> bool:
         lines.append(f"  总投入: ${total_in} (初始 ${init_in})")
         lines.append(f"  配对: {pairs} 次 | 收益: ${profit} | 回报率: {rate}%")
 
+    body = {"msg_type": "text", "content": {"text": "\n".join(lines)}}
     try:
-        resp = httpx.post(WEBHOOK_URL, json={
-            "msg_type": "text",
-            "content": {"text": "\n".join(lines)},
-        }, timeout=10)
+        resp = httpx.post(WEBHOOK_URL, json=body, timeout=10)
+        logger.info(f"飞书响应: status={resp.status_code}, body={resp.text[:200]}")
         if resp.status_code == 200:
             logger.info(f"日报推送飞书成功: {date}")
             return True
         else:
-            logger.error(f"飞书推送失败: {resp.text}")
+            logger.error(f"飞书推送失败: status={resp.status_code}, body={resp.text}")
     except Exception as e:
         logger.error(f"飞书推送异常: {e}")
     return False

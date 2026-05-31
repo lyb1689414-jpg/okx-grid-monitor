@@ -426,6 +426,23 @@ def test_feishu():
         db.close()
 
 
+@router.get("/api/admin/scheduler-jobs")
+def scheduler_jobs(request: Request):
+    """查看 APScheduler 内部注册的所有任务"""
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if not scheduler:
+        return {"error": "调度器未启动"}
+    jobs = []
+    for j in scheduler.get_jobs():
+        jobs.append({
+            "id": j.id,
+            "name": j.name,
+            "next_run_time": str(j.next_run_time) if j.next_run_time else None,
+            "trigger": str(j.trigger),
+        })
+    return {"count": len(jobs), "jobs": jobs}
+
+
 # ==================== 报表 ====================
 
 @router.get("/api/report/daily")
