@@ -13,7 +13,8 @@ from src.db.repository import (
 from src.core.pair_engine import scan_and_pair, sync_grids_from_exchange
 from src.core.statistics import compute_all_active_grids
 from src.core.profit import execute_all_tp_adjustments
-from src.utils import sha_today
+from src.core.feishu import send_daily_report, send_weekly_report
+from src.utils import sha_today, sha_now
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,92 @@ def daily_take_profit_job():
         db.close()
 
 
+def feishu_report_job():
+    """早上8点推送昨日日报到飞书"""
+    today = sha_today()
+    job_name = "feishu_report"
+    db = SessionLocal()
+    try:
+        if is_job_done(db, job_name, today):
+            logger.info(f"[{job_name}] 今日已推送，跳过")
+            return
+
+        start_job(db, job_name, today)
+
+        from datetime import timedelta
+        from src.core.report import generate_daily_report
+        yesterday = (sha_now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        logger.info(f"[{job_name}] 开始生成 {yesterday} 日报...")
+        report = generate_daily_report(db, yesterday)
+        logger.info(f"[{job_name}] 日报生成完成，开始推送...")
+        ok = send_daily_report(report)
+        if ok:
+            logger.info(f"[{job_name}] 推送成功: {yesterday}")
+            complete_job(db, job_name, today)
+        else:
+            logger.error(f"[{job_name}] 推送失败: {yesterday}")
+            fail_job(db, job_name, today, "webhook返回非200或URL为空")
+    except Exception as e:
+        logger.error(f"[{job_name}] 异常: {e}", exc_info=True)
+        fail_job(db, job_name, today, str(e))
+    finally:
+        db.close()
+
+
+def feishu_weekly_job():
+    """每周一早上7点推送上周周报到飞书"""
+    today = sha_today()
+    job_name = "feishu_weekly"
+    db = SessionLocal()
+    try:
+        if is_job_done(db, job_name, today):
+            logger.info(f"[{job_name}] 今日已推送，跳过")
+            return
+
+        start_job(db, job_name, today)
+
+        from datetime import timedelta
+        from src.core.report import generate_weekly_report
+        now = sha_now()
+        last_sunday = now - timedelta(days=now.weekday() + 1)
+        report = generate_weekly_report(db, last_sunday.strftime("%Y-%m-%d"))
+        ok = send_weekly_report(report)
+        if ok:
+            logger.info(f"[{job_name}] 周报推送成功")
+            complete_job(db, job_name, today)
+        else:
+            logger.error(f"[{job_name}] 周报推送失败")
+            fail_job(db, job_name, today, "webhook返回非200或URL为空")
+    except Exception as e:
+        logger.error(f"[{job_name}] 周报异常: {e}", exc_info=True)
+        fail_job(db, job_name, today, str(e))
+    finally:
+        db.close()
+
+
+def db_backup_job():
+    """每天备份数据库，保留最近7天"""
+    import shutil, glob, os
+    db_path = "/app/data/okx_grid.db"
+    backup_dir = "/app/data/backups"
+    os.makedirs(backup_dir, exist_ok=True)
+    today = sha_today()
+    backup_path = os.path.join(backup_dir, f"okx_grid_{today}.db")
+    try:
+        shutil.copy2(db_path, backup_path)
+        logger.info(f"数据库备份完成: {backup_path}")
+        # 删除7天前的备份
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        for f in glob.glob(os.path.join(backup_dir, "okx_grid_*.db")):
+            date_str = f.split("_")[-1].replace(".db", "")
+            if date_str < cutoff:
+                os.remove(f)
+                logger.info(f"删除过期备份: {f}")
+    except Exception as e:
+        logger.error(f"数据库备份失败: {e}")
+
+
 def sync_grids_job():
     """每分钟同步网格状态 + 更新今日统计"""
     db = SessionLocal()
@@ -162,7 +249,34 @@ def start_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
-    # 网格同步 每5分钟
+    # 飞书周报推送 每周一7:00
+    scheduler.add_job(
+        feishu_weekly_job,
+        CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=TZ),
+        id="feishu_weekly",
+        name="飞书周报推送",
+        replace_existing=True,
+    )
+
+    # 飞书日报推送 每天8:00
+    scheduler.add_job(
+        feishu_report_job,
+        CronTrigger(hour=8, minute=0, timezone=TZ),
+        id="feishu_report",
+        name="飞书日报推送",
+        replace_existing=True,
+    )
+
+    # 数据库备份 每天 00:30
+    scheduler.add_job(
+        db_backup_job,
+        CronTrigger(hour=0, minute=30, timezone=TZ),
+        id="db_backup",
+        name="数据库备份",
+        replace_existing=True,
+    )
+
+    # 网格同步 每1分钟
     scheduler.add_job(
         sync_grids_job,
         "interval",

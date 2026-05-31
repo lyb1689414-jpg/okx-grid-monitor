@@ -171,15 +171,24 @@ def list_grids():
 @router.get("/api/amplitude-chart")
 def amplitude_chart(inst_id: str = Query(...),
                     begin_date: str = Query(None),
-                    end_date: str = Query(None)):
+                    end_date: str = Query(None),
+                    algo_id: str = Query(None)):
     """获取振幅走势数据"""
     db = _get_db()
     try:
-        if not begin_date:
-            begin_date = (sha_now() - timedelta(days=30)).strftime("%Y-%m-%d")
         if not end_date:
             end_date = sha_today()
-        return get_amplitude_data(db, inst_id, begin_date, end_date)
+        if not begin_date:
+            # 默认从网格创建日开始
+            from src.db.repository import get_grid_by_algo_id
+            g = get_grid_by_algo_id(db, algo_id) if algo_id else None
+            if g and g.ctime:
+                from datetime import datetime
+                ct = datetime.fromtimestamp(int(g.ctime) / 1000)
+                begin_date = ct.strftime("%Y-%m-%d")
+            else:
+                begin_date = (sha_now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        return get_amplitude_data(db, inst_id, begin_date, end_date, algo_id)
     finally:
         db.close()
 
@@ -187,12 +196,13 @@ def amplitude_chart(inst_id: str = Query(...),
 # ==================== 历史统计 ====================
 
 @router.get("/api/statistics")
-def statistics(date: str = Query(None), page: int = Query(1), page_size: int = Query(20)):
+def statistics(date: str = Query(None), page: int = Query(1), page_size: int = Query(20),
+               algo_id: str = Query(None)):
     """获取每日统计（支持分页和日期筛选）"""
     db = _get_db()
     try:
-        rows = get_daily_stats(db, stat_date=date, page=page, page_size=page_size)
-        total = get_daily_stats_count(db, stat_date=date)
+        rows = get_daily_stats(db, stat_date=date, page=page, page_size=page_size, algo_id=algo_id)
+        total = get_daily_stats_count(db, stat_date=date, algo_id=algo_id)
         result = []
         for r in rows:
             # 从 pair_records 获取真实配对数据
@@ -283,6 +293,7 @@ def take_profit_history(algo_id: str = Query(None), page: int = Query(1)):
 
 @router.get("/api/pairs")
 def pair_records(algo_id: str = Query(None), date: str = Query(None),
+                 begin_date: str = Query(None), end_date: str = Query(None),
                  page: int = Query(1), page_size: int = Query(50)):
     """获取配对记录"""
     from src.db.models import PairRecord
@@ -293,6 +304,10 @@ def pair_records(algo_id: str = Query(None), date: str = Query(None),
             query = query.filter(PairRecord.algo_id == algo_id)
         if date:
             query = query.filter(PairRecord.stat_date == date)
+        if begin_date:
+            query = query.filter(PairRecord.stat_date >= begin_date)
+        if end_date:
+            query = query.filter(PairRecord.stat_date <= end_date)
         total = query.count()
         rows = query.order_by(PairRecord.pair_time.desc()).offset(
             (page - 1) * page_size
@@ -353,6 +368,60 @@ def trigger_margin_check():
             if r:
                 results.append(r)
         return {"checked": len(grids), "actions": results}
+    finally:
+        db.close()
+
+
+# ==================== 诊断 ====================
+
+@router.get("/api/admin/job-status")
+def job_status():
+    """查看所有定时任务最近的执行状态"""
+    db = _get_db()
+    try:
+        from src.db.models import JobExecution
+        today = sha_today()
+        jobs = db.query(JobExecution).filter(
+            JobExecution.execution_date >= (sha_now() - __import__("datetime").timedelta(days=7)).strftime("%Y-%m-%d")
+        ).order_by(JobExecution.execution_date.desc(), JobExecution.id.desc()).all()
+
+        result = {}
+        for j in jobs:
+            if j.job_name not in result:
+                result[j.job_name] = []
+            result[j.job_name].append({
+                "date": j.execution_date,
+                "status": j.status,
+                "started_at": j.started_at,
+                "completed_at": j.completed_at,
+                "error": j.error_message,
+            })
+
+        # 补充未记录的今日任务
+        all_job_names = ["daily_stats", "daily_take_profit", "feishu_report", "feishu_weekly", "db_backup"]
+        for name in all_job_names:
+            if name not in result:
+                result[name] = []
+
+        return {"jobs": result, "today": today, "server_time": sha_now().strftime("%Y-%m-%d %H:%M:%S")}
+    finally:
+        db.close()
+
+
+@router.post("/api/admin/test-feishu")
+def test_feishu():
+    """测试飞书 Webhook 连通性"""
+    from src.core.feishu import send_daily_report
+    db = _get_db()
+    try:
+        from src.core.report import generate_daily_report
+        from datetime import timedelta
+        yesterday = (sha_now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        report = generate_daily_report(db, yesterday)
+        ok = send_daily_report(report)
+        return {"success": ok, "message": "推送成功" if ok else "推送失败，请检查 webhook URL 或网络"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
     finally:
         db.close()
 

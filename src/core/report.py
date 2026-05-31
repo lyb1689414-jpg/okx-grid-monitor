@@ -43,6 +43,7 @@ def generate_daily_report(db: Session, date: str) -> dict:
     today_pairs_total = 0
     today_profit_total = 0.0
     today_amount_total = 0.0
+    today_float_total = 0.0  # 未配对盈亏
     total_input = 0.0
 
     # 前一天数据（从 pair_records 统一来源）
@@ -79,11 +80,19 @@ def generate_daily_report(db: Session, date: str) -> dict:
         today_pairs_total += pair_cnt
         today_profit_total += pair_profit
         today_amount_total += pair_amount
+        today_float_total += (g.float_profit or 0)
         total_input += snap_total_input
 
+        # 当日快照
+        stat = db.query(DailyStatistic).filter(
+            DailyStatistic.algo_id == g.algo_id,
+            DailyStatistic.stat_date == date,
+        ).first()
+        snap_liq = stat.liq_px if stat and stat.liq_px else g.liq_px
+        snap_run = stat.run_px if stat and stat.run_px else g.run_px
         liq_dist = None
-        if g.liq_px and g.liq_px > 0 and g.run_px and g.run_px > 0:
-            liq_dist = round((g.run_px - g.liq_px) / g.run_px * 100, 1)
+        if snap_liq and snap_liq > 0 and snap_run and snap_run > 0:
+            liq_dist = round((snap_run - snap_liq) / snap_run * 100, 1)
 
         grid_details.append({
             "algo_id": g.algo_id,
@@ -102,8 +111,9 @@ def generate_daily_report(db: Session, date: str) -> dict:
             "initial_investment": _fmt(snap_total_investment),
             "extra_margin": _fmt(g.extra_margin),
             "tp_ratio": _fmt((g.tp_ratio or 0) * 100) if g.tp_ratio else None,
-            "liq_px": g.liq_px,
+            "liq_px": snap_liq,
             "liq_distance": liq_dist,
+            "liq_px": snap_liq,
             "lever": g.lever,
         })
 

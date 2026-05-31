@@ -56,21 +56,27 @@ def compute_daily_stats(db: Session, algo_id: str, stat_date: str) -> dict | Non
         "algo_id": algo_id,
         "inst_id": cfg.inst_id,
         "stat_date": stat_date,
+        "liq_px": cfg.liq_px,
+        "run_px": cfg.run_px,
         "pair_count": today_pairs,
         "pair_amount": 0.0,
         "pair_profit": round(today_profit, 8),
         "total_investment": total_investment,
         "daily_return_rate": round(daily_return_rate, 4),
-        "underlying_open": o,
-        "underlying_high": h,
-        "underlying_low": l,
-        "underlying_close": c,
-        "underlying_change_pct": round(change_pct, 4) if change_pct is not None else None,
-        "underlying_amplitude_pct": round(amplitude_pct, 4) if amplitude_pct is not None else None,
     }
 
-    # 首次创建时写入开盘基数
-    if exist_arb is None:
+    # 首次创建时写入 OHLCV 和开盘基数; 更新时不覆盖已有的 OHLCV
+    is_new = exist_arb is None
+    if is_new or existing.underlying_open is None:
+        stat_data.update({
+            "underlying_open": o,
+            "underlying_high": h,
+            "underlying_low": l,
+            "underlying_close": c,
+            "underlying_change_pct": round(change_pct, 4) if change_pct is not None else None,
+            "underlying_amplitude_pct": round(amplitude_pct, 4) if amplitude_pct is not None else None,
+        })
+    if is_new:
         stat_data["open_arbitrage"] = base_arb
         stat_data["open_profit"] = base_gp
 
@@ -94,7 +100,8 @@ def _fetch_daily_ohlc(inst_id: str, target_date: str) -> tuple:
         latest = None
         for candle in data:
             ts_ms = int(candle[0])
-            candle_date = datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
+            # OKX日K时间戳为UTC 0:00，代表前一日K线; 减1秒获取正确日期
+            candle_date = datetime.utcfromtimestamp((ts_ms - 1000) / 1000).strftime("%Y-%m-%d")
             vals = (
                 float(candle[1]),
                 float(candle[2]),
@@ -106,11 +113,8 @@ def _fetch_daily_ohlc(inst_id: str, target_date: str) -> tuple:
             if candle_date == target_date:
                 exact = vals
 
-        if exact:
-            return exact
-        if latest:
-            return latest
-        return (None, None, None, None)
+        # 只返回精确匹配的K线，不用近似值（防止今天没收盘却用了昨天的数据）
+        return exact if exact else (None, None, None, None)
     except Exception as e:
         logger.error(f"获取 {inst_id} 的 {target_date} 日K线失败: {e}")
         return (None, None, None, None)

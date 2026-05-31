@@ -86,6 +86,8 @@ class DailyStatistic(Base):
     underlying_close = Column(Float, nullable=True)
     underlying_change_pct = Column(Float, nullable=True)
     underlying_amplitude_pct = Column(Float, nullable=True)
+    liq_px = Column(Float, nullable=True)                  # 当日强平价快照
+    run_px = Column(Float, nullable=True)                  # 当日当前价快照
     created_at = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 

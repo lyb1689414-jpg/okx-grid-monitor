@@ -23,6 +23,7 @@ body { background: #f5f6fa; font-size: 14px; }
 .nav-tabs .nav-link { font-size: 14px; padding: 8px 16px; }
 .refresh-time { font-size: 12px; color: #999; }
 .grid-detail-row .detail-box { background: #f8f9fa; border-radius: 10px; }
+tr.daily-selected, tr.weekly-selected { background: #bae7ff !important; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -50,10 +51,7 @@ body { background: #f5f6fa; font-size: 14px; }
   </div>
 
   <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <span class="fw-bold">网格列表</span>
-      <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.grid-detail-row').forEach(r=>r.classList.toggle('d-none'))">展开/折叠全部</button>
-    </div>
+    <div class="card-header fw-bold">网格列表</div>
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-hover mb-0">
@@ -66,10 +64,7 @@ body { background: #f5f6fa; font-size: 14px; }
 
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span class="fw-bold">振幅走势</span>
-      <select class="form-select form-select-sm w-auto" id="chartInst" onchange="loadChart()">
-        <option value="">加载中...</option>
-      </select>
+      <span class="fw-bold">振幅走势 - <span id="chartGridName" style="color:#1890ff">点击网格行选择</span></span>
     </div>
     <div class="card-body"><div id="chart"></div></div>
   </div>
@@ -83,13 +78,15 @@ body { background: #f5f6fa; font-size: 14px; }
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDaily" type="button">日报</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabWeekly" type="button">周报</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMargin" type="button">保证金记录</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDiag" type="button">诊断</button></li>
       </ul>
     </div>
     <div class="card-body tab-content">
       <div class="tab-pane fade show active" id="tabStats">
         <div class="d-flex gap-2 mb-2 align-items-center">
           <input type="date" id="statDateFilter" class="form-control form-control-sm w-auto" onchange="loadStats()">
-          <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('statDateFilter').value='';loadStats();">清除</button>
+          <select id="statGridFilter" class="form-select form-select-sm w-auto" onchange="loadStats()"><option value="">全部交易对</option></select>
+          <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('statDateFilter').value='';document.getElementById('statGridFilter').value='';loadStats();">清除</button>
         </div>
         <div class="table-responsive">
           <table class="table table-hover table-sm">
@@ -145,6 +142,26 @@ body { background: #f5f6fa; font-size: 14px; }
           </table>
         </div>
       </div>
+      <div class="tab-pane fade" id="tabDiag">
+        <div class="row">
+          <div class="col-md-7">
+            <h6>定时任务执行状态（近7天）<small class="text-muted" id="jobServerTime"></small></h6>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered">
+                <thead><tr><th>任务名称</th><th>今天状态</th><th>最近执行</th><th>结果</th></tr></thead>
+                <tbody id="jobStatusTable"></tbody>
+              </table>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" onclick="loadJobStatus()">刷新状态</button>
+          </div>
+          <div class="col-md-5">
+            <h6>飞书推送测试</h6>
+            <p class="text-muted small">点击按钮立即发送一条测试推送到飞书</p>
+            <button class="btn btn-warning" onclick="testFeishu()" id="btnTestFeishu">发送测试推送</button>
+            <span id="feishuResult" class="ms-2 small"></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -184,7 +201,11 @@ function fmt(v, isMoney) {
   return v;
 }
 
-function toggleDetail(id) { document.getElementById(id).classList.toggle('d-none'); }
+function toggleDetail(id) {
+  // 只展开当前行，其他全部折叠
+  document.querySelectorAll('.grid-detail-row').forEach(r => { r.classList.add('d-none'); });
+  document.getElementById(id).classList.remove('d-none');
+}
 
 function loadGrids() {
   // 记录当前展开的行
@@ -219,7 +240,7 @@ function loadGrids() {
       const frozenText = g.ord_frozen > 0 ? '$' + g.ord_frozen.toFixed(4) : '--';
       const extraText = g.extra_margin ? '$' + g.extra_margin.toFixed(2) : `<a href='#' onclick='event.stopPropagation();setExtraMargin("${g.algo_id}")' class='text-decoration-none'>设置</a>`;
       const availText = g.avail_eq > 0 ? '$' + g.avail_eq.toFixed(2) : '--';
-      return `<tr style="cursor:pointer" onclick="toggleDetail('dtl_${g.algo_id}')">
+      return `<tr style="cursor:pointer" data-algo="${g.algo_id}" onclick="toggleDetail('dtl_${g.algo_id}');selectGridForChart('${g.algo_id}','${g.inst_id}','${g.algo_id.substring(0,10)}... ${g.inst_id}')">
         <td><code>${g.algo_id.substring(0,8)}..</code><br><small class="text-muted">${typeLabel}</small></td>
         <td><b>${g.inst_id}</b></td>
         <td><span class="badge ${badge}">${stext}</span></td>
@@ -244,23 +265,58 @@ function loadGrids() {
         </td>
       </tr>`;
     }).join('');
-    const sel = document.getElementById('chartInst');
-    const instIds = [...new Set(grids.map(g => g.inst_id))];
-    sel.innerHTML = instIds.map(id => `<option value="${id}">${id}</option>`).join('');
-    if (instIds.length) loadChart();
+    // 保存展开状态
+    const expandedId = document.querySelector('.grid-detail-row:not(.d-none)')?.id || '';
+    // 恢复选中高亮
+    if (selectedGrid) {
+      const row = document.querySelector('#gridTable tr[data-algo=\"' + selectedGrid.algoId + '\"]');
+      if (row) row.style.background = 'rgba(24,144,255,0.08)';
+    }
+    // 恢复展开
+    if (expandedId) document.getElementById(expandedId)?.classList.remove('d-none');
+    // 默认选中第一个网格显示振幅图
+    if (grids.length && !selectedGrid) {
+      const g = grids[0];
+      selectGridForChart(g.algo_id, g.inst_id, g.algo_id.substring(0,10) + '... ' + g.inst_id);
+    }
     // 更新配对明细下拉框
     const pairSel = document.getElementById('pairGridFilter');
-    pairSel.innerHTML = '<option value="">全部网格</option>' + grids.map(g => `<option value="${g.algo_id}">${g.algo_id.substring(0,10)}... ${g.inst_id}</option>`).join('');
+    const opts = '<option value="">全部网格</option>' + grids.map(g => `<option value="${g.algo_id}">${g.algo_id.substring(0,10)}... ${g.inst_id}</option>`).join('');
+    pairSel.innerHTML = opts;
+    // 更新历史统计下拉框
+    const statSel = document.getElementById('statGridFilter');
+    if (statSel) statSel.innerHTML = opts;
     // 恢复之前展开的行
     expanded.forEach(id => document.getElementById(id)?.classList.remove('d-none'));
   }).catch(console.error);
 }
 
+let selectedGrid = null;
 let chartInstance = null;
+let dailyChartInstance = null;
+let weeklyReportData = null;
+let weeklyChartInstance = null;
+
+function selectGridForChart(algoId, instId, displayName) {
+  selectedGrid = { algoId, instId };
+  document.getElementById('chartGridName').textContent = displayName;
+  document.getElementById('chartGridName').style.color = '#1890ff';
+  // 高亮选中的网格行
+  document.querySelectorAll('#gridTable tr').forEach(tr => tr.style.background = '');
+  if (algoId) {
+    const row = document.querySelector('#gridTable tr[data-algo=\"' + algoId + '\"]');
+    if (row) row.style.background = 'rgba(24,144,255,0.08)';
+  }
+  loadChart();
+}
+
 function loadChart() {
-  const instId = document.getElementById('chartInst').value;
-  if (!instId) return;
-  fetchJSON(API + '/amplitude-chart?inst_id=' + instId).then(data => {
+  if (!selectedGrid || !selectedGrid.instId) return;
+  const instId = selectedGrid.instId;
+  const algoId = selectedGrid.algoId;
+  let url = API + '/amplitude-chart?inst_id=' + instId;
+  if (algoId) url += '&algo_id=' + algoId;
+  fetchJSON(url).then(data => {
     const dates = data.map(d => d.date);
     const amps = data.map(d => d.amplitude);
     const changes = data.map(d => d.change);
@@ -285,8 +341,10 @@ window.addEventListener('resize', () => { if (chartInstance) chartInstance.resiz
 function loadStats(page = 1) {
   statsPage = page;
   const date = document.getElementById('statDateFilter').value;
+  const aid = document.getElementById('statGridFilter').value;
   let url = API + '/statistics?page=' + page;
   if (date) url += '&date=' + date;
+  if (aid) url += '&algo_id=' + aid;
   fetchJSON(url).then(d => {
     document.getElementById('statsTable').innerHTML = d.data.map(r => `<tr>
       <td>${r.stat_date}</td><td><code>${r.algo_id.substring(0,12)}...</code></td>
@@ -343,36 +401,38 @@ function loadDaily() {
     const arrow = v => v > 0 ? '<span class="text-success">&#9650;' + v + '</span>' : (v < 0 ? '<span class="text-danger">&#9660;' + Math.abs(v) + '</span>' : '<span class="text-muted">-</span>');
     let html = '<div class="row mb-3">';
     html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">日期</div><div class="value purple">' + d.date + '</div></div></div>';
-    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总盈亏(USDT)</div><div class="value ' + profitCls + '">$' + fmtNum(s.total_profit) + '</div><small>' + arrow(s.total_profit_change) + '</small></div></div>';
+    html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总配对收益(USDT)</div><div class="value ' + profitCls + '">$' + fmtNum(s.total_profit) + '</div><small>' + arrow(s.total_profit_change) + '</small></div></div>';
     html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总配对数</div><div class="value blue">' + s.total_pairs + '</div><small>' + arrow(s.total_pairs_change) + '</small></div></div>';
     html += '<div class="col-md-3 col-6 mb-2"><div class="stat-card"><div class="label">总回报率</div><div class="value ' + profitCls + '">' + s.return_rate + '%</div><small>' + arrow(s.return_rate_change) + '</small></div></div>';
     html += '</div>';
 
     // 网格明细
-    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead><tr><th>网格ID</th><th>交易对</th><th>总投入</th><th>配对数</th><th>收益</th><th>回报率</th><th>涨跌幅</th><th>振幅</th><th>强平距离</th></tr></thead><tbody>';
+    html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead><tr><th>网格ID</th><th>交易对</th><th>总投入</th><th>配对数</th><th>收益</th><th>回报率</th><th>涨跌幅</th><th>振幅</th><th>强平距离</th><th>强平价</th></tr></thead><tbody>';
     d.grid_details.forEach(g => {
       const b = g.status === 'active' ? 'badge-active' : 'badge-stopped';
       const pf = (g.profit||0) >= 0 ? 'text-success' : 'text-danger';
       const lqCls = g.liq_distance && g.liq_distance <= 20 ? 'text-danger fw-bold' : '';
+      const dailyRowStyle = 'cursor:pointer';
       // 环比箭头
       const pairDiff = g.pair_count_prev != null ? g.pair_count - g.pair_count_prev : null;
       const profitDiff = g.profit_prev != null ? round2(g.profit - g.profit_prev) : null;
       const pairArrow = pairDiff > 0 ? ' <span class=\"text-success\">&#9650;' + pairDiff + '</span>' : (pairDiff < 0 ? ' <span class=\"text-danger\">&#9660;' + Math.abs(pairDiff) + '</span>' : '');
       const profitArrow = profitDiff > 0 ? ' <span class=\"text-success\">&#9650;' + profitDiff + '</span>' : (profitDiff < 0 ? ' <span class=\"text-danger\">&#9660;' + Math.abs(profitDiff) + '</span>' : '');
 
-      html += '<tr><td><code>' + g.algo_id.substring(0,10) + '...</code></td>';
+      html += '<tr style="cursor:pointer" data-algo="' + g.algo_id + '" data-inst="' + g.inst_id + '"><td><code>' + g.algo_id.substring(0,10) + '...</code></td>';
       html += '<td><b>' + g.inst_id + '</b></td>';
       html += '<td>$' + fmtNum(g.total_input) + '<br><small class=\"text-muted\">初始 $' + fmtNum(g.initial_investment) + '</small></td>';
       html += '<td>' + g.pair_count + pairArrow + '</td>';
       html += '<td class="' + pf + '">$' + fmtNum(g.profit) + profitArrow + '</td>';
       html += '<td class="' + pf + '">' + (g.return_rate||0) + '%</td>';
       html += '<td>' + (g.change_pct != null ? g.change_pct + '%' : '-') + '</td><td>' + (g.amplitude != null ? g.amplitude + '%' : '-') + '</td>';
-      html += '<td class="' + lqCls + '">' + (g.liq_distance != null ? g.liq_distance + '%' : '--') + '</td></tr>';
+      html += '<td class="' + lqCls + '">' + (g.liq_distance != null ? g.liq_distance + '%' : '--') + '</td>';
+      html += '<td>' + (g.liq_px ? g.liq_px : '--') + '</td></tr>';
     });
     html += '</tbody></table></div>';
 
     // 7日振幅图
-    html += '<div class="dark-card mb-3"><div class="card-header">7日振幅走势</div><div class="card-body"><div id="dailyChart" style="width:100%;height:280px"></div></div></div>';
+    html += '<div class="dark-card mb-3"><div class="card-header">7日振幅走势 - <span id="dailyChartTitle" style="color:#1890ff">点击交易对行选择</span></div><div class="card-body"><div id="dailyChart" style="width:100%;height:280px"></div></div></div>';
 
     // 风控
     if (d.risk_summary.margin_add_count > 0) {
@@ -385,25 +445,20 @@ function loadDaily() {
     }
 
     document.getElementById('dailyContent').innerHTML = html;
-
-    // 7日振幅图
-    setTimeout(() => {
-      const el = document.getElementById('dailyChart');
-      if (!el) return;
-      const chart = echarts.init(el);
-      const dates = d.amplitude_chart.map(x => x.date);
-      chart.setOption({
-        tooltip: {trigger:'axis'}, legend: {data:['振幅%','涨跌幅%'], top:0},
-        grid: {left:50,right:20,top:30,bottom:30},
-        xAxis: {type:'category',data:dates,axisLabel:{rotate:30}},
-        yAxis: {type:'value',axisLabel:{formatter:'{value}%'}},
-        series: [
-          {name:'振幅%',type:'line',data:d.amplitude_chart.map(x=>x.amplitude),smooth:true,lineStyle:{width:2},symbol:'circle',symbolSize:4},
-          {name:'涨跌幅%',type:'line',data:d.amplitude_chart.map(x=>x.change_pct),smooth:true,symbol:'circle',symbolSize:4},
-        ]
+    // 点击行切换走势图
+    document.querySelectorAll('#dailyContent tr[data-algo]').forEach(tr => {
+      tr.addEventListener('click', function() {
+        updateDailyChart(this.getAttribute('data-algo'), this.getAttribute('data-inst'));
       });
-      window.addEventListener('resize', () => chart.resize());
-    }, 200);
+    });
+
+    // 默认加载第一个网格的走势
+    setTimeout(() => {
+      if (d.grid_details.length > 0) {
+        const g = d.grid_details[0];
+        updateDailyChart(g.algo_id, g.inst_id);
+      }
+    }, 300);
   }).catch(console.error);
 }
 
@@ -422,13 +477,13 @@ function loadWeekly() {
     html += '</div>';
 
     // 每日趋势
-    html += '<div class="dark-card mb-3"><div class="card-header">每日趋势</div><div class="card-body"><div id="weeklyTrendChart" style="width:100%;height:280px"></div></div></div>';
+    html += '<div class="dark-card mb-3"><div class="card-header">每日趋势 - <span id="weeklyChartTitle" style="color:#1890ff;cursor:pointer" onclick="updateWeeklyChart()">全部交易对</span></div><div class="card-body"><div id="weeklyTrendChart" style="width:100%;height:280px"></div></div></div>';
 
     // 网格汇总
     html += '<div class="table-responsive"><table class="table table-hover table-sm"><thead><tr><th>网格ID</th><th>交易对</th><th>总投入</th><th>本周配对</th><th>本周收益</th><th>日均回报率</th><th>最佳日</th><th>最佳收益</th></tr></thead><tbody>';
     d.grid_week_summary.forEach(g => {
       const pf = (g.total_profit||0) >= 0 ? 'text-success' : 'text-danger';
-      html += '<tr><td><code>' + g.algo_id.substring(0,10) + '...</code></td>';
+      html += '<tr style="cursor:pointer" data-algo="' + g.algo_id + '" data-inst="' + g.inst_id + '" onclick="updateWeeklyChart(this)"><td><code>' + g.algo_id.substring(0,10) + '...</code></td>';
       html += '<td><b>' + g.inst_id + '</b></td>';
       html += '<td>$' + fmtNum(g.total_input) + '<br><small class=\"text-muted\">初始 $' + fmtNum(g.initial_investment) + '</small></td>';
       html += '<td>' + g.total_pairs + '</td>';
@@ -443,29 +498,118 @@ function loadWeekly() {
     }
 
     document.getElementById('weeklyContent').innerHTML = html;
+    weeklyReportData = d;
 
-    // 周趋势图
-    setTimeout(() => {
-      const el2 = document.getElementById('weeklyTrendChart');
-      if (!el2) return;
-      const chart2 = echarts.init(el2);
-      const dates2 = d.daily_summary.map(x => x.date.substring(5) + ' ' + x.weekday);
-      chart2.setOption({
-        tooltip: {trigger:'axis'}, legend: {data:['配对次数','收益(USDT)'], top:0},
-        grid: {left:50,right:20,top:30,bottom:30},
-        xAxis: {type:'category',data:dates2,axisLabel:{rotate:20}},
-        yAxis: [
-          {type:'value',name:'配对次数'},
-          {type:'value',name:'收益(USDT)'}
-        ],
-        series: [
-          {name:'配对次数',type:'bar',data:d.daily_summary.map(x=>x.pair_count),itemStyle:{color:'#1890ff'}},
-          {name:'收益(USDT)',type:'line',yAxisIndex:1,data:d.daily_summary.map(x=>x.profit),smooth:true,lineStyle:{width:2,color:'#52c41a'},symbol:'circle',symbolSize:4},
-        ]
-      });
-      window.addEventListener('resize', () => chart2.resize());
-    }, 200);
+    // 默认全部交易对走势
+    setTimeout(() => { updateWeeklyChart(); }, 300);
   }).catch(console.error);
+}
+
+function updateDailyChart(algoId, instId) {
+  const titleEl = document.getElementById('dailyChartTitle');
+  if (titleEl) titleEl.textContent = algoId.substring(0,10) + '... ' + instId;
+  document.querySelectorAll('#dailyContent tr.daily-selected').forEach(tr => tr.classList.remove('daily-selected'));
+  const row = document.querySelector('#dailyContent tr[data-algo=\"' + algoId + '\"]');
+  if (row) row.classList.add('daily-selected');
+
+  if (dailyChartInstance) dailyChartInstance.dispose();
+  const el = document.getElementById('dailyChart');
+  if (!el) return;
+  dailyChartInstance = echarts.init(el);
+
+  // 用日报选定的日期往回推7天
+  const reportDate = document.getElementById('dailyDate').value;
+  let begin = '', end = '';
+  if (reportDate) {
+    const d = new Date(reportDate);
+    const e = new Date(d); e.setDate(e.getDate() - 6);
+    end = reportDate;
+    begin = e.toISOString().split('T')[0];
+  }
+  let url = API + '/amplitude-chart?inst_id=' + instId + '&algo_id=' + algoId;
+  if (begin) url += '&begin_date=' + begin + '&end_date=' + end;
+
+  fetchJSON(url).then(data => {
+    const dates = data.map(d => d.date);
+    dailyChartInstance.setOption({
+      tooltip: {trigger:'axis'}, legend: {data:['振幅%','涨跌幅%'], top:0},
+      grid: {left:50,right:20,top:30,bottom:30},
+      xAxis: {type:'category',data:dates,axisLabel:{rotate:30}},
+      yAxis: {type:'value',axisLabel:{formatter:'{value}%'}},
+      series: [
+        {name:'振幅%',type:'line',data:data.map(x=>x.amplitude),smooth:true,lineStyle:{width:2},symbol:'circle',symbolSize:4},
+        {name:'涨跌幅%',type:'line',data:data.map(x=>x.change),smooth:true,symbol:'circle',symbolSize:4},
+      ]
+    });
+  }).catch(console.error);
+}
+
+function updateWeeklyChart(rowEl) {
+  if (!weeklyReportData) return;
+  const titleEl = document.getElementById('weeklyChartTitle');
+  document.querySelectorAll('#weeklyContent tr.weekly-selected').forEach(tr => tr.classList.remove('weekly-selected'));
+
+  let algoId = null, instId = null, label = '全部交易对';
+  // 如果点击了行，切换为单个交易对；再次点击或传null切回全部
+  if (rowEl && rowEl.getAttribute) {
+    algoId = rowEl.getAttribute('data-algo');
+    instId = rowEl.getAttribute('data-inst');
+    // 如果已选中同一行，取消选中（切回全部）
+    if (rowEl.classList.contains('weekly-selected')) {
+      rowEl.classList.remove('weekly-selected');
+      algoId = null; instId = null;
+    } else {
+      rowEl.classList.add('weekly-selected');
+      label = algoId.substring(0,10) + '... ' + instId;
+    }
+  }
+  if (titleEl) { titleEl.textContent = label; titleEl.style.cursor = 'pointer'; }
+
+  const d = weeklyReportData;
+  // 筛选数据
+  let dailyData = d.daily_summary;
+  if (algoId && instId) {
+    // 为该网格聚合本周每日配对数据
+    const ws = d.week_start, we = d.week_end;
+    fetchJSON(API + '/pairs?algo_id=' + algoId + '&begin_date=' + ws + '&end_date=' + we + '&page_size=99999').then(pairData => {
+      // 按日期汇总
+      const dayMap = {};
+      pairData.data.forEach(p => {
+        const dd = p.stat_date;
+        if (!dayMap[dd]) dayMap[dd] = {date: dd, pair_count: 0, profit: 0};
+        dayMap[dd].pair_count += 1;
+        dayMap[dd].profit += (p.pair_amount || 0);
+      });
+      const dailyData = Object.values(dayMap).sort((a,b) => a.date.localeCompare(b.date));
+      // 补上星期几
+      dailyData.forEach(x => {
+        const dt = new Date(x.date);
+        x.weekday = ['日','一','二','三','四','五','六'][dt.getDay()];
+      });
+      renderWeeklyTrendChart(dailyData);
+    });
+  } else {
+    renderWeeklyTrendChart(d.daily_summary);
+  }
+}
+
+function renderWeeklyTrendChart(dailyData) {
+  if (weeklyChartInstance) weeklyChartInstance.dispose();
+  const el2 = document.getElementById('weeklyTrendChart');
+  if (!el2) return;
+  weeklyChartInstance = echarts.init(el2);
+  const dates2 = dailyData.map(x => (x.date||'').substring(5) + (x.weekday ? ' ' + x.weekday : ''));
+  weeklyChartInstance.setOption({
+    tooltip: {trigger:'axis'}, legend: {data:['配对次数','收益(USDT)'], top:0},
+    grid: {left:50,right:20,top:30,bottom:30},
+    xAxis: {type:'category',data:dates2,axisLabel:{rotate:20}},
+    yAxis: [{type:'value',name:'配对次数'},{type:'value',name:'收益(USDT)'}],
+    series: [
+      {name:'配对次数',type:'bar',data:dailyData.map(x=>x.pair_count||0),itemStyle:{color:'#1890ff'}},
+      {name:'收益(USDT)',type:'line',yAxisIndex:1,data:dailyData.map(x=>Math.round((x.profit||0)*10000)/10000),smooth:true,lineStyle:{width:2,color:'#52c41a'},symbol:'circle',symbolSize:4},
+    ]
+  });
+  window.addEventListener('resize', () => weeklyChartInstance.resize());
 }
 
 function fmtNum(v) {
@@ -531,6 +675,54 @@ async function triggerStats() {
   } catch(e) { alert('失败: ' + e); }
 }
 
+async function loadJobStatus() {
+  try {
+    const r = await fetchJSON(API + '/admin/job-status');
+    document.getElementById('jobServerTime').textContent = '服务器时间: ' + r.server_time;
+    const names = {'daily_stats':'每日配对统计','daily_take_profit':'每日止盈修改','feishu_report':'飞书日报推送','feishu_weekly':'飞书周报推送','db_backup':'数据库备份'};
+    let h = '';
+    for (const [name, label] of Object.entries(names)) {
+      const entries = r.jobs[name] || [];
+      const today = entries.find(e => e.date === r.today);
+      const last = entries[0];
+      let todayBadge = '<span class="badge bg-secondary">未执行</span>';
+      if (today) {
+        todayBadge = today.status === 'completed'
+          ? '<span class="badge bg-success">已完成</span>'
+          : today.status === 'failed'
+            ? '<span class="badge bg-danger">失败</span>'
+            : '<span class="badge bg-warning">运行中</span>';
+      }
+      h += `<tr>
+        <td>${label}</td>
+        <td>${todayBadge}</td>
+        <td>${last ? last.date + ' ' + (last.completed_at||'') : '无记录'}</td>
+        <td>${(today && today.error) ? '<span class="text-danger small">' + today.error + '</span>' : (last ? last.status : '')}</td>
+      </tr>`;
+    }
+    document.getElementById('jobStatusTable').innerHTML = h;
+  } catch(e) { console.error(e); }
+}
+
+async function testFeishu() {
+  const btn = document.getElementById('btnTestFeishu');
+  const result = document.getElementById('feishuResult');
+  btn.disabled = true;
+  btn.textContent = '发送中...';
+  result.textContent = '';
+  try {
+    const r = await fetch(API + '/admin/test-feishu', { method: 'POST' });
+    const d = await r.json();
+    result.innerHTML = d.success
+      ? '<span class="text-success">推送成功! 请检查飞书</span>'
+      : '<span class="text-danger">推送失败: ' + d.message + '</span>';
+  } catch(e) {
+    result.innerHTML = '<span class="text-danger">请求失败: ' + e + '</span>';
+  }
+  btn.disabled = false;
+  btn.textContent = '发送测试推送';
+}
+
 function refreshAll() { loadSummary(); loadGrids(); loadStats(statsPage); loadTPHistory(); loadPairs(pairsPage); }
 
 document.querySelectorAll('[data-bs-toggle="tab"]').forEach(btn => {
@@ -542,6 +734,7 @@ document.querySelectorAll('[data-bs-toggle="tab"]').forEach(btn => {
     if (t === '#tabDaily') loadDaily();
     if (t === '#tabWeekly') loadWeekly();
     if (t === '#tabMargin') loadMargins();
+    if (t === '#tabDiag') loadJobStatus();
   });
 });
 

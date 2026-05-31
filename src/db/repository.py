@@ -137,38 +137,60 @@ def upsert_daily_stat(db: Session, stat_data: dict) -> DailyStatistic:
 
 
 def get_daily_stats(db: Session, stat_date: str = None, page: int = 1,
-                    page_size: int = 20) -> list[DailyStatistic]:
+                    page_size: int = 20, algo_id: str = None) -> list[DailyStatistic]:
     query = db.query(DailyStatistic)
     if stat_date:
         query = query.filter(DailyStatistic.stat_date == stat_date)
+    if algo_id:
+        query = query.filter(DailyStatistic.algo_id == algo_id)
     query = query.order_by(DailyStatistic.stat_date.desc(), DailyStatistic.algo_id)
     return query.offset((page - 1) * page_size).limit(page_size).all()
 
 
-def get_daily_stats_count(db: Session, stat_date: str = None) -> int:
+def get_daily_stats_count(db: Session, stat_date: str = None, algo_id: str = None) -> int:
     query = db.query(DailyStatistic)
     if stat_date:
         query = query.filter(DailyStatistic.stat_date == stat_date)
+    if algo_id:
+        query = query.filter(DailyStatistic.algo_id == algo_id)
     return query.count()
 
 
 def get_amplitude_data(db: Session, inst_id: str, begin_date: str,
-                       end_date: str) -> list[dict]:
-    rows = db.query(DailyStatistic).filter(
+                       end_date: str, algo_id: str = None) -> list[dict]:
+    from src.db.models import PairRecord
+    query = db.query(DailyStatistic).filter(
         DailyStatistic.inst_id == inst_id,
         DailyStatistic.stat_date >= begin_date,
         DailyStatistic.stat_date <= end_date,
-    ).order_by(DailyStatistic.stat_date.asc()).all()
+    )
+    if algo_id:
+        query = query.filter(DailyStatistic.algo_id == algo_id)
+    rows = query.order_by(DailyStatistic.stat_date.asc()).all()
 
-    return [
-        {
-            "date": r.stat_date,
-            "amplitude": r.underlying_amplitude_pct,
-            "change": r.underlying_change_pct,
-            "return_rate": r.daily_return_rate,
-        }
-        for r in rows
-    ]
+    seen = set()
+    result = []
+    for r in rows:
+        if r.stat_date not in seen:
+            seen.add(r.stat_date)
+            # 回报率从 pair_records 实时计算
+            day_pairs = db.query(PairRecord).filter(
+                PairRecord.algo_id == (algo_id or r.algo_id),
+                PairRecord.stat_date == r.stat_date,
+            ).all()
+            pair_profit = sum(p.pair_amount or 0 for p in day_pairs)
+            grid = db.query(GridConfig).filter(
+                GridConfig.algo_id == (algo_id or r.algo_id)
+            ).first()
+            total_in = grid.total_investment + (grid.extra_margin or 0) if grid else 1
+            ret_rate = round(pair_profit / total_in * 100, 4) if total_in > 0 else 0
+            result.append({
+                "date": r.stat_date,
+                "amplitude": r.underlying_amplitude_pct,
+                "change": r.underlying_change_pct,
+                "return_rate": ret_rate,
+            })
+    return result
 
 
 # ==================== TakeProfitHistory ====================

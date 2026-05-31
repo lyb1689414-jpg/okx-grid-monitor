@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///data/okx_grid.db"
     timezone: str = "Asia/Shanghai"
     take_profit_pct: float = 16.14
+    feishu_webhook_url: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
